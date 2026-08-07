@@ -1,0 +1,21 @@
+name: ai-advisor-test
+label: AI Advisor Test
+description: ''
+snowflake:
+  preview:
+    database: STRATA_DEV
+    schema: AI_ADVISOR_TEST
+    warehouse: DEV_WH
+  preprod:
+    database: STRATA_PREVIEW
+    schema: AI_ADVISOR_TEST
+    warehouse: DEV_WH
+  prod:
+    database: STRATA
+    schema: AI_ADVISOR_TEST
+    warehouse: DEV_WH
+vars:
+  default:
+    source_db: DUMMY_DB
+  prod:
+    source_db: DUMMY_DB
