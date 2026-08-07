@@ -1,0 +1,25 @@
+# Schemachange config for STRATA_PREVIEW (preprod) deploy.
+# Loaded by deploy_and_verify.sh. Snowflake credentials are read from env vars
+# (SNOWFLAKE_ACCOUNT + SNOWFLAKE_PRIVATE_KEY_PATH), never from this file.
+config-version: 1
+root-folder: 'schemachange/changes'
+modules-folder: 'schemachange/modules'
+
+# Connection — user/role/warehouse are static; account comes from env.
+snowflake-user: 'STRATA_ADHOC_SSH_USER'
+snowflake-role: 'STRATA_PREVIEW_ETL'
+snowflake-warehouse: 'SNOWFLAKE_LEARNING_WH'
+snowflake-database: 'STRATA_PREVIEW'
+
+# Change-history table (created on first run).
+change-history-table: 'STRATA_PREVIEW.MODELLED.SCHEMACHANGE_HISTORY'
+create-change-history-table: true
+
+# Vars substituted into R__* files at deploy time.
+vars:
+  database: 'STRATA_PREVIEW'
+  schema: 'MODELLED'
+  source_db: 'DS_SB'
+
+autocommit: false
+verbose: true

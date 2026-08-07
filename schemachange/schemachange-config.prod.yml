@@ -1,0 +1,21 @@
+# Schemachange config for STRATA (prod) deploy.
+# Loaded by deploy_and_verify.sh. Credentials come from env, never this file.
+config-version: 1
+root-folder: 'schemachange/changes'
+modules-folder: 'schemachange/modules'
+
+snowflake-user: 'STRATA_ADHOC_SSH_USER'
+snowflake-role: 'STRATA_ETL'
+snowflake-warehouse: 'SNOWFLAKE_LEARNING_WH'
+snowflake-database: 'STRATA'
+
+change-history-table: 'STRATA.MODELLED.SCHEMACHANGE_HISTORY'
+create-change-history-table: true
+
+vars:
+  database: 'STRATA'
+  schema: 'MODELLED'
+  source_db: 'DS'
+
+autocommit: false
+verbose: true
