@@ -1,0 +1,21 @@
+name: scaffold-push-test
+label: Scaffold Push Test
+description: verifying scaffold pushes to origin
+snowflake:
+  preview:
+    database: STRATA_DEV
+    schema: SCAFFOLD_PUSH_TEST
+    warehouse: DEV_WH
+  preprod:
+    database: STRATA_PREVIEW
+    schema: SCAFFOLD_PUSH_TEST
+    warehouse: DEV_WH
+  prod:
+    database: STRATA
+    schema: SCAFFOLD_PUSH_TEST
+    warehouse: DEV_WH
+vars:
+  default:
+    source_db: DUMMY_DB
+  prod:
+    source_db: DUMMY_DB

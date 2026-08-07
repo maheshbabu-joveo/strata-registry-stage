@@ -1,0 +1,21 @@
+# Native Snowflake semantic view — a minimal working sample. Edit it, or add more
+# views in this folder. It reads the sample base view at ../base/scaffold_push_test_overview_base.sql.
+name: SV_SCAFFOLD_PUSH_TEST_OVERVIEW
+description: "Scaffold Push Test"
+
+tables:
+  - name: overview
+    base_table:
+      database: "{{ database }}"   # env target (STRATA_DEV / STRATA_PREVIEW / STRATA)
+      schema: "{{ schema }}"
+      table: SCAFFOLD_PUSH_TEST_OVERVIEW_BASE
+    primary_key:
+      columns: [CLIENT_ID, EVENT_DATE]
+    dimensions:
+      - name: CATEGORY
+        expr: CATEGORY
+        data_type: VARCHAR
+    metrics:
+      - name: TOTAL_AMOUNT
+        expr: SUM(AMOUNT)
+        data_type: NUMBER
