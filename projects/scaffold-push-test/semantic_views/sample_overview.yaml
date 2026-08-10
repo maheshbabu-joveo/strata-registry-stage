@@ -1,21 +1,504 @@
-# Native Snowflake semantic view — a minimal working sample. Edit it, or add more
-# views in this folder. It reads the sample base view at ../base/scaffold_push_test_overview_base.sql.
-name: SV_SCAFFOLD_PUSH_TEST_OVERVIEW
-description: "Scaffold Push Test"
-
+name: CRM_TALENT_POOL_ANALYTICS
+description: '{"description": "Talent Pool analytics at candidate grain, V3: rebased onto the pre-computed cache tables IDP.MODELLED.CRM_TALENT_POOL_CANDIDATES (one row per candidate: source, geo, latest job category, LAST_ENGAGED_AT) and CRM_TALENT_POOL_ACTIVITY (one row per outreach event or application), which are refreshed by 2-hourly incremental MERGE plus a weekly full rebuild. All expensive work - the engagements x events join, orphan and null-candidate filtering, per-candidate last-engagement aggregation, latest-job-category ranking - is pre-paid at cache build time, so this view has ONE logical table, no relationships, no window functions, and scans only the two small cache tables. FRESHNESS is derived at query time from the stored LAST_ENGAGED_AT against CURRENT_DATE, so buckets never go stale between refreshes. DATA FRESHNESS: numbers lag live by up to ~3 hours (hourly source sync + 2-hourly cache merge); the weekly rebuild reconciles upstream deletes. LINEAGE EXCLUSIONS (identical to what the previous raw-table version excluded via its joins, now explicit): activity without a linked candidate and events whose engagement no longer exists (~4M rows) are not represented; events with NULL EVENT_ID (~1.5k) enter via weekly rebuild only. SEMANTICS: candidates_in_pool is all-time and ignores the date window while activity metrics are windowed by var_start_date and var_end_date; freshness is measured from today; applications never count toward freshness; SMS clients have no open tracking so judge them by reply_rate; candidates who applied can exceed candidates nurtured because the stages are independent counts, NOT a nested funnel. Always filter on client_id (translate sub_account_id via IDP.MODELLED.CRM_CLIENT_MAPPINGS). ACCEPTANCE for client 0nf1pn0sga3fd (allow growth drift): candidates_in_pool ~1,771,149; never_engaged ~1,161,024.", "label": "Talent Pool Analytics"}'
 tables:
-  - name: overview
+  - name: SOURCE_TABLE
     base_table:
-      database: "{{ database }}"   # env target (STRATA_DEV / STRATA_PREVIEW / STRATA)
-      schema: "{{ schema }}"
-      table: SCAFFOLD_PUSH_TEST_OVERVIEW_BASE
-    primary_key:
-      columns: [CLIENT_ID, EVENT_DATE]
+      definition: |-
+        SELECT
+              c.CANDIDATE_ID                              AS CANDIDATE_ID,
+              c.CANDIDATE_ID                              AS CANDIDATE_ID_SRC,
+              c.CLIENT_ID                                 AS CLIENT_ID,
+              c.AGENCY_ID                                 AS AGENCY_ID,
+              c.CREATED_AT_CLEAN                          AS CREATED_AT_CLEAN,
+              c.SOURCE_GROUP                              AS SOURCE_GROUP,
+              c.COUNTRY                                   AS COUNTRY,
+              c.COUNTRY_CODE                              AS COUNTRY_CODE,
+              c.STATE                                     AS STATE,
+              c.STATE_CODE                                AS STATE_CODE,
+              c.CITY                                      AS CITY,
+              c.POSTAL_CODE                               AS POSTAL_CODE,
+              c.JOB_CATEGORY                              AS JOB_CATEGORY,
+              a.ACTIVITY_TYPE                             AS ACTIVITY_TYPE,
+              a.ACTIVITY_DATE                             AS ACTIVITY_DATE,
+              a.ACTIVITY_REF                              AS ACTIVITY_REF,
+              a.ACTIVITY_REF                              AS ACTIVITY_REF_SRC,
+              a.CHANNEL                                   AS CHANNEL,
+              c.LAST_ENGAGED_AT                           AS LAST_ENGAGED_AT,
+              DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE())            AS DAYS_SINCE_ENGAGED,
+              CASE
+                WHEN c.LAST_ENGAGED_AT IS NULL                              THEN 'Never engaged'
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 30  THEN 'Under 30 days'
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 90  THEN '30 to 90 days'
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 180 THEN '90 to 180 days'
+                ELSE 'Over 180 days' END                                    AS FRESHNESS,
+              CASE
+                WHEN c.LAST_ENGAGED_AT IS NULL                              THEN 5
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 30  THEN 1
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 90  THEN 2
+                WHEN DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 180 THEN 3
+                ELSE 4 END                                                  AS FRESHNESS_ORDER,
+              IFF(c.LAST_ENGAGED_AT IS NOT NULL
+                  AND DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) < 30,  1, 0) AS IS_FRESH,
+              IFF(c.LAST_ENGAGED_AT IS NOT NULL
+                  AND DATEDIFF(day, c.LAST_ENGAGED_AT, CURRENT_DATE()) >= 180, 1, 0) AS IS_STALE,
+              IFF(c.LAST_ENGAGED_AT IS NULL, 1, 0)                          AS IS_NEVER_ENGAGED
+            FROM IDP.MODELLED.CRM_TALENT_POOL_CANDIDATES c
+            LEFT JOIN IDP.MODELLED.CRM_TALENT_POOL_ACTIVITY a
+              ON c.CLIENT_ID = a.CLIENT_ID AND c.CANDIDATE_ID = a.CANDIDATE_ID
     dimensions:
-      - name: CATEGORY
-        expr: CATEGORY
-        data_type: VARCHAR
+      - name: ACTIVITY_DATE
+        synonyms:
+          - activity date
+          - outreach date
+          - when it happened
+        description: '{"description": "Date of the outreach event or application on this row. A WHERE predicate on it is safe ONLY when no all-time metric is requested (candidates_in_pool, candidates_added, or the freshness counts) - otherwise it drops candidates with no activity in the window and those metrics collapse.", "hidden": false, "label": "Activity Date"}'
+        expr: source_table.ACTIVITY_DATE
+        data_type: DATE
+      - name: ACTIVITY_MONTH
+        synonyms:
+          - activity month
+        description: '{"description": "Month of the activity, for monthly trend grouping.", "hidden": false, "label": "Activity Month"}'
+        expr: DATE_TRUNC('MONTH', source_table.ACTIVITY_DATE)
+        data_type: DATE
+      - name: ACTIVITY_TYPE
+        synonyms:
+          - activity
+          - event type
+        description: '{"description": "DELIVERED, OPENED, CLICKED, REPLIED, UNSUBSCRIBED or APPLICATION. Some events carry NULL here - never filter this column with a not-equals test, since NULL <> x is NULL and rows vanish silently.", "hidden": false, "label": "Activity Type"}'
+        expr: source_table.ACTIVITY_TYPE
+        data_type: VARCHAR(16777216)
+      - name: ACTIVITY_WEEK
+        synonyms:
+          - activity week
+        description: '{"description": "Week of the activity, for weekly trend grouping.", "hidden": false, "label": "Activity Week"}'
+        expr: DATE_TRUNC('WEEK', source_table.ACTIVITY_DATE)
+        data_type: DATE
+      - name: AGENCY_ID
+        synonyms:
+          - agency
+        description: '{"description": "Agency that owns the CRM client.", "hidden": false, "label": "Agency ID"}'
+        expr: source_table.AGENCY_ID
+        data_type: VARCHAR(16777216)
+      - name: CANDIDATE_ID
+        synonyms:
+          - candidate id
+        description: '{"description": "Candidate identifier, for row-level inspection only. Use candidates_in_pool to count candidates.", "hidden": true, "label": "Candidate ID"}'
+        expr: source_table.CANDIDATE_ID
+        data_type: VARCHAR(16777216)
+      - name: CHANNEL
+        synonyms:
+          - channel
+          - delivery channel
+          - sms or email
+        description: '{"description": "Channel of the outreach activity: SMS or EMAIL. NULL on application rows and on engagements with no channel recorded. CRITICAL: SMS carries NO open tracking, so at SMS-only clients candidates_who_opened and open_rate are always 0 while replies and clicks are healthy. Judge SMS clients by reply_rate.", "hidden": false, "label": "Channel"}'
+        expr: source_table.CHANNEL
+        data_type: VARCHAR(16777216)
+      - name: CITY
+        synonyms:
+          - city
+          - town
+        description: '{"description": "Candidate city. 32,000 plus values - always apply a top-N limit, and prefer a table over a map since cities are points.", "hidden": false, "label": "City"}'
+        expr: source_table.CITY
+        data_type: VARCHAR(16777216)
+      - name: CLIENT_ID
+        synonyms:
+          - client
+          - crm client
+          - customer
+        description: '{"description": "CRM client id. REQUIRED filter on every query. Translate a sub_account_id through IDP.MODELLED.CRM_CLIENT_MAPPINGS first; sibling sub-accounts share one pool.", "hidden": false, "label": "Client ID"}'
+        expr: source_table.CLIENT_ID
+        data_type: VARCHAR(16777216)
+      - name: COUNTRY
+        synonyms:
+          - country
+          - geo
+          - location country
+        description: '{"description": "Candidate country. 215 observed, so scope state-level views to one country first. Missing values show as Unknown - about 24 percent of candidates have no location.", "hidden": false, "label": "Country"}'
+        expr: source_table.COUNTRY
+        data_type: VARCHAR(16777216)
+      - name: COUNTRY_CODE
+        synonyms:
+          - country code
+          - iso country
+        description: '{"description": "Two-letter country code for the candidate location, for map lookups.", "hidden": false, "label": "Country Code"}'
+        expr: source_table.COUNTRY_CODE
+        data_type: VARCHAR(16777216)
+      - name: CREATED_DATE
+        synonyms:
+          - created date
+          - date added
+          - joined pool on
+        description: '{"description": "Date the candidate entered the pool. NULL where the stored timestamp was corrupt (1970 or year-56222 values).", "hidden": false, "label": "Created Date"}'
+        expr: TO_DATE(source_table.CREATED_AT_CLEAN)
+        data_type: DATE
+      - name: CREATED_MONTH
+        synonyms:
+          - month added
+        description: '{"description": "Month the candidate entered the pool.", "hidden": false, "label": "Created Month"}'
+        expr: DATE_TRUNC('MONTH', source_table.CREATED_AT_CLEAN)
+        data_type: TIMESTAMP_NTZ(9)
+      - name: CREATED_QUARTER
+        synonyms:
+          - quarter added
+        description: '{"description": "Quarter the candidate entered the pool.", "hidden": false, "label": "Created Quarter"}'
+        expr: DATE_TRUNC('QUARTER', source_table.CREATED_AT_CLEAN)
+        data_type: TIMESTAMP_NTZ(9)
+      - name: CREATED_WEEK
+        synonyms:
+          - week added
+        description: '{"description": "Week the candidate entered the pool.", "hidden": false, "label": "Created Week"}'
+        expr: DATE_TRUNC('WEEK', source_table.CREATED_AT_CLEAN)
+        data_type: TIMESTAMP_NTZ(9)
+      - name: CREATED_YEAR
+        synonyms:
+          - year added
+        description: '{"description": "Year the candidate entered the pool.", "hidden": false, "label": "Created Year"}'
+        expr: DATE_TRUNC('YEAR', source_table.CREATED_AT_CLEAN)
+        data_type: TIMESTAMP_NTZ(9)
+      - name: DAYS_SINCE_ENGAGED
+        synonyms:
+          - days since contact
+          - recency in days
+        description: '{"description": "Days between the candidate last outreach and today. NULL when never engaged. Numeric alternative to the freshness buckets for range filtering.", "hidden": false, "label": "Days Since Engaged"}'
+        expr: source_table.DAYS_SINCE_ENGAGED
+        data_type: NUMBER(9,0)
+      - name: FORMATED_ACTIVITY_DATE
+        synonyms:
+          - formatted activity date
+        description: '{"description": "Display string only. Group and filter on activity_date.", "hidden": false, "label": "Display Activity Date"}'
+        expr: TO_CHAR(source_table.ACTIVITY_DATE, var_date_format)
+        data_type: VARCHAR(134217728)
+      - name: FORMATED_CREATED_DATE
+        synonyms:
+          - formatted created date
+        description: '{"description": "Display string only - filter and sort on created_date.", "hidden": false, "label": "Display Created Date"}'
+        expr: TO_CHAR(TO_DATE(source_table.CREATED_AT_CLEAN), var_date_format)
+        data_type: VARCHAR(134217728)
+      - name: FRESHNESS
+        synonyms:
+          - age of contact
+          - freshness
+          - how stale
+          - last contacted
+          - recency
+        description: '{"description": "How long since the candidate was last reached by outreach, counted from TODAY rather than from the end of the selected period. EXACTLY FIVE VALUES, and filters must match one of these strings verbatim: Under 30 days, 30 to 90 days, 90 to 180 days, Over 180 days, Never engaged. Never engaged is normally the LARGEST bucket at 55 to 66 percent of the pool, partly because outreach history only begins 2024-04-23; it is a real category, not missing data, and must be shown or totals will not reconcile with candidates_in_pool. Bucket sizes shift slightly every day as candidates age across boundaries, so comparisons are only valid within the same day.", "hidden": false, "label": "Freshness"}'
+        expr: source_table.FRESHNESS
+        data_type: VARCHAR(14)
+      - name: FRESHNESS_ORDER
+        synonyms:
+          - bucket order
+          - freshness sort order
+        description: '{"description": "Display order for the freshness buckets: 1 Under 30 days, 2 for 30 to 90, 3 for 90 to 180, 4 Over 180 days, 5 Never engaged. ORDER BY THIS rather than by the freshness label, which sorts alphabetically and would put Never engaged first. Presentation only - never filter on it, filter on freshness.", "hidden": false, "label": "Freshness Order"}'
+        expr: source_table.FRESHNESS_ORDER
+        data_type: NUMBER(1,0)
+      - name: JOB_CATEGORY
+        synonyms:
+          - job category
+          - job family
+          - role type
+          - what kind of job
+        description: '{"description": "Job category of the candidate MOST RECENT application, precomputed at cache build time from UA_JOBS.CATEGORY with no mapping applied. CLIENT-SPECIFIC free text - never assume a fixed list; clients use this differently (employment types vs job functions), typically 6 to 15 values per client. Only about 23 percent of the pool has any job link; the rest are No job linked, a real category that must be shown or totals will not reconcile with candidates_in_pool.", "hidden": false, "label": "Job Category"}'
+        expr: source_table.JOB_CATEGORY
+        data_type: VARCHAR(16777216)
+      - name: LAST_ENGAGED_DATE
+        synonyms:
+          - last contacted date
+        description: '{"description": "Date of the candidate most recent outreach event. NULL when never engaged.", "hidden": false, "label": "Last Engaged Date"}'
+        expr: TO_DATE(source_table.LAST_ENGAGED_AT)
+        data_type: DATE
+      - name: POSTAL_CODE
+        synonyms:
+          - postal code
+          - postcode
+          - zip
+        description: '{"description": "Candidate postal code.", "hidden": false, "label": "Postal Code"}'
+        expr: source_table.POSTAL_CODE
+        data_type: VARCHAR(16777216)
+      - name: SOURCE
+        synonyms:
+          - acquisition source
+          - candidate source
+          - source
+          - where candidates came from
+        description: '{"description": "How the candidate entered the pool, normalised at cache build time. CLIENT-SPECIFIC - each client has its own set, typically 5 to 20 values, so never assume a fixed list. Common values include ATS, FORM, CRM Talent YYYY, Easy Apply, Web Apply, Organic Apply, Programmatic Apply. Blank shows as Unknown; known seed values as Test / Invalid.", "hidden": false, "label": "Source"}'
+        expr: source_table.SOURCE_GROUP
+        data_type: VARCHAR(16777216)
+      - name: STATE
+        synonyms:
+          - province
+          - region
+          - state
+        description: '{"description": "Candidate state or province as a full name. GROUP BY THIS rather than state_code - some rows carry a name with no code and would split. Missing shows as Unknown.", "hidden": false, "label": "State"}'
+        expr: source_table.STATE
+        data_type: VARCHAR(16777216)
+      - name: STATE_CODE
+        synonyms:
+          - state code
+        description: '{"description": "State or province code. Frequently NULL even when the name is present - use only for map region lookups.", "hidden": false, "label": "State Code"}'
+        expr: source_table.STATE_CODE
+        data_type: VARCHAR(16777216)
+    facts:
+      - name: ACTIVITY_REF
+        synonyms:
+          - activity row id
+        description: '{"description": "Row-level id of the outreach event or application on this row. Counted distinctly by the applications metric.", "hidden": true, "label": "Activity Row ID"}'
+        expr: source_table.ACTIVITY_REF_SRC
+        data_type: VARCHAR(16777216)
+        access_modifier: public_access
+      - name: CANDIDATE_REF
+        synonyms:
+          - candidate row id
+        description: '{"description": "Row-level candidate id, counted distinctly by every candidate metric. Never SUM this - the base repeats a candidate once per activity row.", "hidden": true, "label": "Candidate Row ID"}'
+        expr: source_table.CANDIDATE_ID_SRC
+        data_type: VARCHAR(16777216)
+        access_modifier: public_access
+      - name: FRESH_FLAG
+        synonyms:
+          - is fresh
+        description: '{"description": "1 when the candidate was last reached within 30 days of today, else 0. Derived at query time from the stored LAST_ENGAGED_AT, so buckets never go stale between cache refreshes.", "hidden": true, "label": "Is Fresh"}'
+        expr: source_table.IS_FRESH
+        data_type: NUMBER(1,0)
+        access_modifier: public_access
+      - name: NEVER_FLAG
+        synonyms:
+          - is never engaged
+        description: '{"description": "1 when the candidate has never been reached by any outreach, else 0.", "hidden": true, "label": "Is Never Engaged"}'
+        expr: source_table.IS_NEVER_ENGAGED
+        data_type: NUMBER(1,0)
+        access_modifier: public_access
+      - name: STALE_FLAG
+        synonyms:
+          - is stale
+        description: '{"description": "1 when the candidate last outreach was 180 or more days ago, else 0. Excludes never-engaged candidates.", "hidden": true, "label": "Is Stale"}'
+        expr: source_table.IS_STALE
+        data_type: NUMBER(1,0)
+        access_modifier: public_access
     metrics:
-      - name: TOTAL_AMOUNT
-        expr: SUM(AMOUNT)
-        data_type: NUMBER
+      - name: APPLICATIONS
+        synonyms:
+          - applications
+          - submissions
+          - total applications
+        description: '{"description": "Total applications in the window. Higher than candidates_who_applied because one candidate can apply several times.", "hidden": false, "label": "Applications"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'APPLICATION'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.activity_ref END)
+        access_modifier: public_access
+      - name: CANDIDATES_ADDED
+        synonyms:
+          - candidates added
+          - new candidates
+          - pool growth
+        description: '{"description": "Candidates who entered the pool inside the window. Excludes candidates whose creation timestamp was corrupt.", "hidden": false, "label": "Candidates Added"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.CREATED_AT_CLEAN >= var_start_date
+                 AND source_table.CREATED_AT_CLEAN <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: CANDIDATES_IN_POOL
+        synonyms:
+          - candidates
+          - candidates in pool
+          - pool size
+          - total candidates
+        description: '{"description": "Distinct candidates in the pool. ALL-TIME BY DESIGN - deliberately ignores the date window, matching the production Total candidates KPI. Do not read the ratio between this and a windowed activity metric as a contact rate.", "hidden": false, "label": "Candidates In Pool"}'
+        expr: COUNT(DISTINCT source_table.candidate_ref)
+        access_modifier: public_access
+      - name: CANDIDATES_NURTURED
+        synonyms:
+          - contacted
+          - messaged
+          - nurtured
+          - outreached candidates
+        description: '{"description": "Candidates who received at least one message in the window. The measure prod labels Outreached candidates.", "hidden": false, "label": "Candidates Nurtured"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'DELIVERED'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: CANDIDATES_WHO_APPLIED
+        synonyms:
+          - applicants
+          - applied
+          - candidates who applied
+        description: '{"description": "Distinct candidates who applied in the window. Can legitimately EXCEED candidates_nurtured - most candidates arrive by applying rather than being messaged, so the pool-to-apply stages are independent counts, NOT a nested funnel.", "hidden": false, "label": "Candidates Who Applied"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'APPLICATION'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: CANDIDATES_WHO_CLICKED
+        synonyms:
+          - clicked
+          - clicks
+          - link clicks
+        description: '{"description": "Candidates who clicked a link in the window. Works on both SMS and email - the safest cross-channel engagement signal.", "hidden": false, "label": "Candidates Who Clicked"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'CLICKED'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: CANDIDATES_WHO_OPENED
+        synonyms:
+          - opened
+          - opens
+        description: '{"description": "Candidates who opened a message in the window. ALWAYS 0 FOR SMS-ONLY CLIENTS - SMS has no open tracking; use replies or reply_rate there.", "hidden": false, "label": "Candidates Who Opened"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'OPENED'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: CLICK_RATE
+        synonyms:
+          - click rate
+          - percent clicked
+        description: '{"description": "Candidates who clicked divided by candidates messaged, in the window. Works on both channels.", "hidden": false, "label": "Click Rate"}'
+        expr: |-
+          CASE WHEN source_table.candidates_nurtured = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.candidates_who_clicked / source_table.candidates_nurtured, 1) END
+        access_modifier: public_access
+      - name: ENGAGED_CANDIDATES
+        synonyms:
+          - engaged
+          - engaged candidates
+        description: '{"description": "Candidates who opened OR clicked in the window - matches the production Talent Pool KPI card definition exactly (deliberately excludes replies and unsubscribes). For SMS-only clients this reduces to clicks.", "hidden": false, "label": "Engaged Candidates"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE IN ('OPENED','CLICKED')
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: FRESH_CANDIDATES
+        synonyms:
+          - fresh candidates
+          - recently contacted
+        description: '{"description": "Candidates last reached within 30 days of today. Not affected by the date window - freshness is always measured from today.", "hidden": false, "label": "Fresh Candidates"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.fresh_flag = 1 THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: FRESH_SHARE
+        synonyms:
+          - fresh share
+          - percent fresh
+        description: '{"description": "Percentage of the whole pool reached within the last 30 days. Do not use when the query is already grouped by freshness - it collapses to 100 percent in one bucket and 0 elsewhere.", "hidden": false, "label": "Fresh Share"}'
+        expr: |-
+          CASE WHEN source_table.candidates_in_pool = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.fresh_candidates / source_table.candidates_in_pool, 1) END
+        access_modifier: public_access
+      - name: NEVER_ENGAGED
+        synonyms:
+          - never contacted
+          - never engaged
+          - untouched candidates
+        description: '{"description": "Candidates never reached by any outreach. Typically the LARGEST group at 55 to 66 percent of the pool. ACCEPTANCE: ~1,161,024 for client 0nf1pn0sga3fd as of recording (allow growth drift). Returning 0 or near-0 means LAST_ENGAGED_AT is broken in the cache build.", "hidden": false, "label": "Never Engaged"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.never_flag = 1 THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: NEVER_ENGAGED_SHARE
+        synonyms:
+          - percent never contacted
+          - untouched share
+        description: '{"description": "Percentage of the pool never reached by outreach. A useful pool-hygiene headline - 55 to 66 percent observed.", "hidden": false, "label": "Never Engaged Share"}'
+        expr: |-
+          CASE WHEN source_table.candidates_in_pool = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.never_engaged / source_table.candidates_in_pool, 1) END
+        access_modifier: public_access
+      - name: OPEN_RATE
+        synonyms:
+          - open rate
+          - percent opened
+        description: '{"description": "Candidates who opened divided by candidates messaged, in the window. ALWAYS 0 for SMS-only clients. Decays with freshness: 57.8 percent within 30 days falling to 36.2 at 180 plus days.", "hidden": false, "label": "Open Rate"}'
+        expr: |-
+          CASE WHEN source_table.candidates_nurtured = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.candidates_who_opened / source_table.candidates_nurtured, 1) END
+        access_modifier: public_access
+      - name: OPT_OUTS
+        synonyms:
+          - opt outs
+          - unsubscribes
+        description: '{"description": "Candidates who unsubscribed in the window. 0.07 to 1.4 percent of pool observed - far too low to define a reachable audience.", "hidden": false, "label": "Opt Outs"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'UNSUBSCRIBED'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: REPLIES
+        synonyms:
+          - replies
+          - responded
+        description: '{"description": "Candidates who replied in the window. The most reliable engagement signal for SMS clients.", "hidden": false, "label": "Replies"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.ACTIVITY_TYPE = 'REPLIED'
+                 AND source_table.ACTIVITY_DATE >= var_start_date
+                 AND source_table.ACTIVITY_DATE <  var_end_date
+                THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: REPLY_RATE
+        synonyms:
+          - percent replied
+          - reply rate
+          - response rate
+        description: '{"description": "Candidates who replied divided by candidates messaged, in the window. The primary engagement metric for SMS clients. Decays sharply: 23.3 percent within 30 days falling to 5.0 at 180 plus days.", "hidden": false, "label": "Reply Rate"}'
+        expr: |-
+          CASE WHEN source_table.candidates_nurtured = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.replies / source_table.candidates_nurtured, 1) END
+        access_modifier: public_access
+      - name: STALE_CANDIDATES
+        synonyms:
+          - cold candidates
+          - gone cold
+          - stale candidates
+        description: '{"description": "Candidates whose last outreach was 180 or more days ago. Excludes never-engaged candidates - see never_engaged.", "hidden": false, "label": "Stale Candidates"}'
+        expr: |-
+          COUNT(DISTINCT CASE
+                WHEN source_table.stale_flag = 1 THEN source_table.candidate_ref END)
+        access_modifier: public_access
+      - name: STALE_SHARE
+        synonyms:
+          - how stale is the pool
+          - percent stale
+          - stale share
+        description: '{"description": "Percentage of CONTACTED candidates whose last outreach was 180 plus days ago - the denominator excludes never-engaged. Around 20 percent observed. Compare stale_share_incl_never.", "hidden": false, "label": "Stale Share"}'
+        expr: |-
+          CASE
+                WHEN (source_table.candidates_in_pool - source_table.never_engaged) = 0 THEN NULL
+                ELSE ROUND(100.0 * source_table.stale_candidates
+                           / (source_table.candidates_in_pool - source_table.never_engaged), 1) END
+        access_modifier: public_access
+      - name: STALE_SHARE_INCL_NEVER
+        synonyms:
+          - cold share of whole pool
+          - stale share including never contacted
+        description: '{"description": "Percentage of the WHOLE pool either 180 plus days cold or never contacted. 71 to 88 percent observed against 16 to 23 percent for stale_share. Both correct, different questions.", "hidden": false, "label": "Stale Share Incl Never"}'
+        expr: |-
+          CASE WHEN source_table.candidates_in_pool = 0 THEN NULL
+                ELSE ROUND(100.0 * (source_table.stale_candidates + source_table.never_engaged) / source_table.candidates_in_pool, 1) END
+        access_modifier: public_access
+variables:
+  - name: VAR_DATE_FORMAT
+    data_type: VARCHAR(134217728)
+    default_value: '''YYYY-MM-DD'''
+  - name: VAR_END_DATE
+    data_type: TIMESTAMP_NTZ(9)
+    default_value: TO_TIMESTAMP('2035-01-01 00:00:00')
+  - name: VAR_START_DATE
+    data_type: TIMESTAMP_NTZ(9)
+    default_value: TO_TIMESTAMP('2015-01-01 00:00:00')
