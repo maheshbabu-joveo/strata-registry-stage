@@ -173,3 +173,57 @@ def order(objects: List[Dict]) -> List[Dict]:
 def compile_plan(files: Iterable[Tuple[str, str]]) -> List[Dict]:
     """(path, content) pairs → dependency-ordered [{path, kind, name, content, deps}]."""
     return order(build_objects(files))
+
+
+# --------------------------------------------------------------------------- #
+# Shared STRUCTURAL validation — the single contract enforced at every gate:
+#   * strata-engine Validate/Test (in-app, so authors see errors immediately),
+#   * the pre-merge gate (blocks a broken SV from ever reaching the pipeline),
+#   * render_changes.py (last-resort backstop at deploy time).
+# These return human-readable problem strings ([] == OK) — they never raise, so
+# each caller decides how to surface them (UI list vs die vs GovernanceError).
+# --------------------------------------------------------------------------- #
+
+def sv_yaml_problems(name: str, body: str) -> List[str]:
+    """Structural problems with a semantic-view YAML file. `name` is a label for
+    messages (usually the file name). A logical table is valid with EITHER an
+    inline ``base_table.definition`` (SQL) OR a ``base_table.database/schema/table``
+    reference — Snowflake accepts both."""
+    problems: List[str] = []
+    try:
+        doc = yaml.safe_load(body)
+    except yaml.YAMLError as e:
+        return [f"{name}: not valid YAML: {e}"]
+    if not isinstance(doc, dict):
+        return [f"{name}: top-level must be a mapping"]
+    if not doc.get("name"):
+        problems.append(f"{name}: missing `name`")
+    tables = doc.get("tables")
+    if not tables or not isinstance(tables, list):
+        problems.append(f"{name}: `tables` must be a non-empty list")
+        return problems
+    for i, t in enumerate(tables):
+        bt = (t or {}).get("base_table") or {}
+        if bt.get("definition"):
+            continue  # inline SQL logical table — no reference needed
+        missing = [k for k in ("database", "schema", "table") if not bt.get(k)]
+        if missing:
+            problems.append(
+                f"{name}: tables[{i}].base_table missing {'/'.join(missing)} "
+                f"(give base_table.database/schema/table, or an inline base_table.definition)"
+            )
+    return problems
+
+
+def project_env_problems(cfg: dict, env: str) -> List[str]:
+    """Structural problems with a project.yml for a target env — the snowflake.<env>
+    block must supply database/schema/warehouse."""
+    snow = (cfg or {}).get("snowflake") or {}
+    block = snow.get(env)
+    if not block:
+        return [f"project.yml has no snowflake.{env} block"]
+    return [
+        f"project.yml snowflake.{env}.{k} is missing/empty"
+        for k in ("database", "schema", "warehouse")
+        if not block.get(k)
+    ]
