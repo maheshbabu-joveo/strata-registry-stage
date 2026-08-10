@@ -68,13 +68,11 @@ def _load_project_yml(project_dir: Path) -> dict:
 
 
 def _validate_env_config(project: str, cfg: dict, env: str) -> dict:
-    snow = (cfg.get("snowflake") or {}).get(env)
-    if not snow:
-        _die(f"{project}: project.yml has no snowflake.{env} block")
-    for k in ("database", "schema", "warehouse"):
-        if not snow.get(k):
-            _die(f"{project}: project.yml snowflake.{env}.{k} is missing/empty")
-    return snow
+    # Shared contract (strata_plan) — same check the engine Validate + pre-merge
+    # gate run, so a project.yml that fails here would already have been caught.
+    for p in strata_plan.project_env_problems(cfg, env):
+        _die(f"{project}: {p}")
+    return (cfg.get("snowflake") or {}).get(env) or {}
 
 
 def _schema_name(project: str) -> str:
@@ -153,22 +151,11 @@ def _out_name(prefix: str, project: str, stem: str, suffix: str) -> str:
 
 
 def _check_yaml_shape(project: str, sv_file: Path, body: str) -> None:
-    try:
-        doc = yaml.safe_load(body)
-    except yaml.YAMLError as e:
-        _die(f"{project}/{sv_file.name}: not valid YAML: {e}")
-    if not isinstance(doc, dict):
-        _die(f"{project}/{sv_file.name}: top-level must be a mapping")
-    if not doc.get("name"):
-        _die(f"{project}/{sv_file.name}: missing `name`")
-    tables = doc.get("tables")
-    if not tables or not isinstance(tables, list):
-        _die(f"{project}/{sv_file.name}: `tables` must be a non-empty list")
-    for i, t in enumerate(tables):
-        bt = (t or {}).get("base_table") or {}
-        for k in ("database", "schema", "table"):
-            if not bt.get(k):
-                _die(f"{project}/{sv_file.name}: tables[{i}].base_table.{k} is missing")
+    # Shared contract (strata_plan) — same check the engine Validate + pre-merge
+    # gate run. A logical table may be an inline base_table.definition OR a
+    # database/schema/table reference. This is only the deploy-time backstop.
+    for p in strata_plan.sv_yaml_problems(f"{project}/{sv_file.name}", body):
+        _die(p)
 
 
 def render(env: str, only_project: str | None = None) -> None:
