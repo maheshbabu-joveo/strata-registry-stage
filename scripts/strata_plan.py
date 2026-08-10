@@ -212,6 +212,23 @@ def sv_yaml_problems(name: str, body: str) -> List[str]:
                 f"{name}: tables[{i}].base_table missing {'/'.join(missing)} "
                 f"(give base_table.database/schema/table, or an inline base_table.definition)"
             )
+    # Relationships must reference tables defined in `tables` (a dangling ref fails
+    # at deploy) — catch it here so Validate/merge flag it early.
+    tbl_names = {
+        str(t.get("name")) for t in tables if isinstance(t, dict) and t.get("name")
+    }
+    rels = doc.get("relationships")
+    if isinstance(rels, list):
+        for i, r in enumerate(rels):
+            if not isinstance(r, dict):
+                continue
+            for side in ("left_table", "right_table"):
+                ref = r.get(side)
+                if ref and str(ref) not in tbl_names:
+                    problems.append(
+                        f"{name}: relationships[{i}].{side} '{ref}' is not a table "
+                        "defined in `tables`"
+                    )
     return problems
 
 
