@@ -1,0 +1,23 @@
+name: ai-advisor
+label: AI Advisor
+description: Semantic layer for the AI-Advisor micro-frontend (Today dashboard, client/overview
+  persona). Ported from looker-staffing-predictive predictive views onto DS predictive
+  fact tables in <source_db>.MODELLED.
+snowflake:
+  preview:
+    database: STRATA_DEV
+    schema: AI_ADVISOR
+    warehouse: DEV_WH
+  preprod:
+    database: STRATA_PREVIEW
+    schema: AI_ADVISOR
+    warehouse: DEV_WH
+  prod:
+    database: STRATA
+    schema: AI_ADVISOR
+    warehouse: DEV_WH
+vars:
+  default:
+    source_db: DUMMY_DB
+  prod:
+    source_db: DUMMY_DB
