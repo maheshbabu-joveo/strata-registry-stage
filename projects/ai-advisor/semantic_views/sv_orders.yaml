@@ -1,0 +1,213 @@
+name: SV_ORDERS
+description: '{"description": "The orders book: one row per open order at the client''s latest snapshot. Master view for the AI-Advisor overview — powers the Performance-overview KPIs (active orders, risky positions, risky %, avg risk/fill/TTF, hires), the risk & health distribution (group by a band label), breakdown / performance-analysis (group by any attribute), and the order-detail table. Ported from looker-staffing-predictive overview + health_distribution + predictive_analytics_table. Always filter CLIENT_ID.", "label": "Orders"}'
+tables:
+  - name: ORDERS
+    base_table:
+      database: "{{ database }}"
+      schema: "{{ schema }}"
+      table: ORDERS_BOOK
+    primary_key:
+      columns: [ORDER_ID]
+    dimensions:
+      - name: CLIENT_ID
+        synonyms: [client, customer]
+        description: '{"description": "Client id. REQUIRED filter on every query.", "label": "Client ID"}'
+        expr: ORDERS.CLIENT_ID
+        data_type: VARCHAR(16777216)
+      - name: ORDER_ID
+        synonyms: [order, job]
+        description: '{"description": "Order / job identifier. One row per open order.", "label": "Order ID"}'
+        expr: ORDERS.ORDER_ID
+        data_type: VARCHAR(16777216)
+      - name: ORDER_TITLE
+        synonyms: [job title, title]
+        description: '{"description": "Order / job title.", "label": "Order Title"}'
+        expr: ORDERS.ORDER_TITLE
+        data_type: VARCHAR(16777216)
+      - name: ORDER_COMPANY
+        synonyms: [company, client name]
+        description: '{"description": "Client company for the order.", "label": "Company"}'
+        expr: ORDERS.ORDER_COMPANY
+        data_type: VARCHAR(16777216)
+      - name: ORDER_CATEGORY
+        synonyms: [category, job category]
+        description: '{"description": "Job category.", "label": "Category"}'
+        expr: ORDERS.ORDER_CATEGORY
+        data_type: VARCHAR(16777216)
+      - name: ORDER_TYPE
+        synonyms: [type]
+        description: '{"description": "Order type.", "label": "Order Type"}'
+        expr: ORDERS.ORDER_TYPE
+        data_type: VARCHAR(16777216)
+      - name: ORDER_ROLE
+        synonyms: [role, purpose]
+        description: '{"description": "Order role. Hiring = placement/likely_placement; sourcing = sourcing (the order_purpose filter).", "label": "Order Role"}'
+        expr: ORDERS.ORDER_ROLE
+        data_type: VARCHAR(16777216)
+      - name: ORDER_LOCATION
+        synonyms: [location]
+        description: '{"description": "Order location.", "label": "Location"}'
+        expr: ORDERS.ORDER_LOCATION
+        data_type: VARCHAR(16777216)
+      - name: ORDER_COUNTRY
+        synonyms: [country]
+        description: '{"description": "Order country.", "label": "Country"}'
+        expr: ORDERS.ORDER_COUNTRY
+        data_type: VARCHAR(16777216)
+      - name: REGION
+        synonyms: [region]
+        description: '{"description": "Region.", "label": "Region"}'
+        expr: ORDERS.REGION
+        data_type: VARCHAR(16777216)
+      - name: COST_CENTER
+        synonyms: [cost center]
+        description: '{"description": "Cost center.", "label": "Cost Center"}'
+        expr: ORDERS.COST_CENTER
+        data_type: VARCHAR(16777216)
+      - name: BRANCH_NAME
+        synonyms: [branch]
+        description: '{"description": "Branch name.", "label": "Branch"}'
+        expr: ORDERS.BRANCH_NAME
+        data_type: VARCHAR(16777216)
+      - name: SUBBRAND
+        synonyms: [sub brand]
+        description: '{"description": "Sub-brand.", "label": "Sub Brand"}'
+        expr: ORDERS.SUBBRAND
+        data_type: VARCHAR(16777216)
+      - name: CAMPAIGN_NAME
+        synonyms: [campaign]
+        description: '{"description": "Campaign name.", "label": "Campaign"}'
+        expr: ORDERS.CAMPAIGN_NAME
+        data_type: VARCHAR(16777216)
+      - name: ORDER_STATUS
+        synonyms: [status]
+        description: '{"description": "Order status.", "label": "Status"}'
+        expr: ORDERS.ORDER_STATUS
+        data_type: VARCHAR(16777216)
+      - name: RISK_GROUP_LABEL
+        synonyms: [risk band, risk label]
+        description: '{"description": "Risk band (Very low / Low / Medium / High / Very high risk), resolved per-client from config. Group by this for the risk distribution.", "label": "Risk Group"}'
+        expr: ORDERS.RISK_GROUP_LABEL
+        data_type: VARCHAR(16777216)
+      - name: FILL_GROUP_LABEL
+        synonyms: [fill band, fill label]
+        description: '{"description": "Fill-probability band (Doubtful / Slightly possible / Possible / Highly possible / Extremely possible).", "label": "Fill Group"}'
+        expr: ORDERS.FILL_GROUP_LABEL
+        data_type: VARCHAR(16777216)
+      - name: TTF_GROUP_LABEL
+        synonyms: [ttf band, time to fill band]
+        description: '{"description": "Time-to-fill band (1 Week / 2 Weeks / 1 Month / 2 Months / More than 2 Months).", "label": "Time-to-Fill Group"}'
+        expr: ORDERS.TTF_GROUP_LABEL
+        data_type: VARCHAR(16777216)
+      - name: JOB_HEALTH_STATUS
+        synonyms: [health, health status]
+        description: '{"description": "Order health status (e.g. Good / Fair / Poor).", "label": "Health Status"}'
+        expr: ORDERS.JOB_HEALTH_STATUS
+        data_type: VARCHAR(16777216)
+    facts:
+      - name: RISK_SCORE
+        synonyms: [difficulty score]
+        description: '{"description": "Per-order risk / difficulty score (0-1).", "hidden": true, "label": "Risk Score"}'
+        expr: ORDERS.RISK_SCORE
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: FILL_PROBABILITY
+        synonyms: [fill probability]
+        description: '{"description": "Per-order predicted probability of filling within 30 days (0-1).", "hidden": true, "label": "Fill Probability"}'
+        expr: ORDERS.FILL_PROBABILITY
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: TIME_TO_FILL
+        synonyms: [time to fill, ttf]
+        description: '{"description": "Per-order predicted time to fill (days).", "hidden": true, "label": "Time To Fill"}'
+        expr: ORDERS.TIME_TO_FILL
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: HEALTH_SCORE
+        synonyms: [job health score]
+        description: '{"description": "Per-order health score.", "hidden": true, "label": "Health Score"}'
+        expr: ORDERS.JOB_HEALTH_SCORE
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: DAYS_OPEN
+        synonyms: [days open]
+        description: '{"description": "Days the order has been open (posted date to snapshot).", "hidden": true, "label": "Days Open"}'
+        expr: ORDERS.DAYS_OPEN
+        data_type: NUMBER(38,0)
+        access_modifier: public_access
+      - name: POSITIONS
+        synonyms: [positions, openings]
+        description: '{"description": "Total positions on the order.", "hidden": true, "label": "Positions"}'
+        expr: ORDERS.POSITIONS
+        data_type: NUMBER(38,0)
+        access_modifier: public_access
+      - name: SALARY
+        synonyms: [salary, pay rate]
+        description: '{"description": "Order base pay rate.", "hidden": true, "label": "Salary"}'
+        expr: ORDERS.SALARY
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: HIRES
+        synonyms: [hires, started]
+        description: '{"description": "Per-order started/hired count.", "hidden": true, "label": "Hires"}'
+        expr: ORDERS.HIRES
+        data_type: NUMBER(38,0)
+        access_modifier: public_access
+      - name: SPEND
+        synonyms: [spend]
+        description: '{"description": "Per-order Joveo spend (source currency; conversion added later).", "hidden": true, "label": "Spend"}'
+        expr: ORDERS.SPEND
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: RISKY_FLAG
+        synonyms: [is risky]
+        description: '{"description": "1 when the order is High or Very High risk, else 0.", "hidden": true, "label": "Is Risky"}'
+        expr: ORDERS.IS_RISKY
+        data_type: NUMBER(1,0)
+        access_modifier: public_access
+    metrics:
+      - name: TOTAL_ACTIVE_ORDERS
+        synonyms: [active orders, total active jobs, order count]
+        description: '{"description": "Distinct open orders at the latest snapshot.", "label": "Active Orders"}'
+        expr: COUNT(DISTINCT ORDERS.ORDER_ID)
+        access_modifier: public_access
+      - name: RISKY_POSITIONS
+        synonyms: [risky positions, at-risk orders]
+        description: '{"description": "Orders labelled High or Very High risk.", "label": "Risky Positions"}'
+        expr: SUM(ORDERS.IS_RISKY)
+        access_modifier: public_access
+      - name: RISKY_PERCENT
+        synonyms: [risky percent, risk share]
+        description: '{"description": "Risky positions as a share of active orders.", "label": "Risky %"}'
+        expr: CASE WHEN COUNT(DISTINCT ORDERS.ORDER_ID) = 0 THEN NULL ELSE ROUND(100.0 * SUM(ORDERS.IS_RISKY) / COUNT(DISTINCT ORDERS.ORDER_ID), 1) END
+        access_modifier: public_access
+      - name: AVG_RISK_SCORE
+        synonyms: [avg risk score, average risk]
+        description: '{"description": "Average per-order risk score.", "label": "Avg Risk Score"}'
+        expr: AVG(ORDERS.RISK_SCORE)
+        access_modifier: public_access
+      - name: AVG_FILL_PROBABILITY
+        synonyms: [avg fill probability]
+        description: '{"description": "Average per-order fill probability.", "label": "Avg Fill Probability"}'
+        expr: AVG(ORDERS.FILL_PROBABILITY)
+        access_modifier: public_access
+      - name: AVG_TIME_TO_FILL
+        synonyms: [avg time to fill, avg ttf]
+        description: '{"description": "Average per-order predicted time to fill (days).", "label": "Avg Time To Fill"}'
+        expr: AVG(ORDERS.TIME_TO_FILL)
+        access_modifier: public_access
+      - name: AVG_HEALTH_SCORE
+        synonyms: [avg health score]
+        description: '{"description": "Average per-order health score.", "label": "Avg Health Score"}'
+        expr: AVG(ORDERS.JOB_HEALTH_SCORE)
+        access_modifier: public_access
+      - name: TOTAL_HIRES
+        synonyms: [total hires, hires]
+        description: '{"description": "Total started/hired across the book.", "label": "Total Hires"}'
+        expr: SUM(ORDERS.HIRES)
+        access_modifier: public_access
+      - name: TOTAL_SPEND
+        synonyms: [total spend, spend]
+        description: '{"description": "Total Joveo spend (source currency; conversion added later).", "label": "Total Spend"}'
+        expr: SUM(ORDERS.SPEND)
+        access_modifier: public_access

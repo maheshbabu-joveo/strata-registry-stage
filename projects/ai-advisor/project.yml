@@ -18,6 +18,6 @@ snowflake:
     warehouse: DEV_WH
 vars:
   default:
-    source_db: DUMMY_DB
+    source_db: DS_SB
   prod:
-    source_db: DUMMY_DB
+    source_db: DS_SB

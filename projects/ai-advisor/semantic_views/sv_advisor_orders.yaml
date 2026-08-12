@@ -1,0 +1,82 @@
+name: SV_ADVISOR_ORDERS
+description: '{"description": "FIRST SLICE. Open orders at their latest snapshot, one row per order, for the AI-Advisor Today KpiStrip (client/overview persona). METRICS mode powers the scalar KPI tiles: active orders, risky positions, avg risk / fill-probability / time-to-fill; group by RISK_GROUP_LABEL for the risk distribution. Risk band LABELS are resolved per-client from CAMPAIGN_MANAGEMENT_CONFIG_STORE at base-view build time. Always filter on CLIENT_ID. Ported from looker-staffing-predictive predictive_analytics_table + overview. Attributes/spend/trends come in later slices.", "label": "AI Advisor - Orders (KPIs)"}'
+tables:
+  - name: SOURCE_TABLE
+    base_table:
+      database: "{{ database }}"
+      schema: "{{ schema }}"
+      table: ADVISOR_ORDERS_BOOK
+    primary_key:
+      columns: [ORDER_ID]
+    dimensions:
+      - name: CLIENT_ID
+        synonyms: [client, customer, client id]
+        description: '{"description": "Client id. REQUIRED filter on every query.", "hidden": false, "label": "Client ID"}'
+        expr: source_table.CLIENT_ID
+        data_type: VARCHAR(16777216)
+      - name: ORDER_ID
+        synonyms: [order, job, order id]
+        description: '{"description": "Order/job identifier. Unique per row (latest open snapshot). Counted by total_active_orders.", "hidden": false, "label": "Order ID"}'
+        expr: source_table.ORDER_ID
+        data_type: VARCHAR(16777216)
+      - name: RISK_GROUP_LABEL
+        synonyms: [risk band, risk label, risk group]
+        description: '{"description": "Risk band label (Very Low / Low / Medium / High / Very High Risk), resolved per-client from config. UNKNOWN when the score falls outside configured bands. Group by this for the KpiStrip risk distribution.", "hidden": false, "label": "Risk Group"}'
+        expr: source_table.RISK_SCORE_LABEL
+        data_type: VARCHAR(16777216)
+    facts:
+      - name: RISKY_FLAG
+        synonyms: [is risky]
+        description: '{"description": "1 when the order is High or Very High Risk, else 0. Summed by risky_positions.", "hidden": true, "label": "Is Risky"}'
+        expr: source_table.IS_RISKY
+        data_type: NUMBER(1,0)
+        access_modifier: public_access
+      - name: RISK_SCORE
+        synonyms: [difficulty score, risk score]
+        description: '{"description": "Per-order difficulty/risk score (0-1). Aggregated by avg_risk_score.", "hidden": true, "label": "Risk Score"}'
+        expr: source_table.DIFFICULTY_SCORE
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: FILL_PROBABILITY
+        synonyms: [fill probability]
+        description: '{"description": "Per-order predicted probability the next hire fills within 30 days (0-1). Aggregated by avg_fill_probability.", "hidden": true, "label": "Fill Probability"}'
+        expr: source_table.NEXT_HIRE_FILLED_IN_30_DAYS_PREDICTED
+        data_type: FLOAT
+        access_modifier: public_access
+      - name: TIME_TO_FILL
+        synonyms: [time to fill, ttf]
+        description: '{"description": "Per-order predicted time to fill, in days. Aggregated by avg_time_to_fill.", "hidden": true, "label": "Time To Fill (days)"}'
+        expr: source_table.NEXT_HIRE_TIME_TO_FILL_PREDICTED
+        data_type: FLOAT
+        access_modifier: public_access
+    metrics:
+      - name: TOTAL_ACTIVE_ORDERS
+        synonyms: [active orders, total orders, order count]
+        description: '{"description": "Distinct open orders at the latest snapshot. The headline KpiStrip number.", "hidden": false, "label": "Active Orders"}'
+        expr: COUNT(DISTINCT source_table.ORDER_ID)
+        access_modifier: public_access
+      - name: RISKY_POSITIONS
+        synonyms: [risky positions, at-risk orders]
+        description: '{"description": "Count of orders labelled High or Very High Risk.", "hidden": false, "label": "Risky Positions"}'
+        expr: SUM(source_table.RISKY_FLAG)
+        access_modifier: public_access
+      - name: RISKY_PERCENT
+        synonyms: [percent risky, risk share]
+        description: '{"description": "Risky positions as a share of active orders.", "hidden": false, "label": "Risky %"}'
+        expr: CASE WHEN COUNT(DISTINCT source_table.ORDER_ID) = 0 THEN NULL ELSE ROUND(100.0 * SUM(source_table.RISKY_FLAG) / COUNT(DISTINCT source_table.ORDER_ID), 1) END
+        access_modifier: public_access
+      - name: AVG_RISK_SCORE
+        synonyms: [average risk, avg risk score]
+        description: '{"description": "Average per-order risk (difficulty) score.", "hidden": false, "label": "Avg Risk Score"}'
+        expr: AVG(source_table.RISK_SCORE)
+        access_modifier: public_access
+      - name: AVG_FILL_PROBABILITY
+        synonyms: [average fill probability, avg fill]
+        description: '{"description": "Average per-order fill probability.", "hidden": false, "label": "Avg Fill Probability"}'
+        expr: AVG(source_table.FILL_PROBABILITY)
+        access_modifier: public_access
+      - name: AVG_TIME_TO_FILL
+        synonyms: [average time to fill, avg ttf]
+        description: '{"description": "Average per-order predicted time to fill (days).", "hidden": false, "label": "Avg Time To Fill"}'
+        expr: AVG(source_table.TIME_TO_FILL)
+        access_modifier: public_access

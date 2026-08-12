@@ -1,0 +1,115 @@
+name: SV_INSIGHTS
+description: '{"description": "Latest-snapshot insights & recommendations per client, all categories. Powers the AI-Advisor Insights & Recommendations widget, the Recommendations repository, job-level why-factors, issue chips and nudges. Row-grain: query DIMENSIONS at INSIGHT_ID grain (the console compiles METRICS+DIMENSIONS, not FACTS); filter CATEGORY (overview widget -> ''overview''; job panel/chips -> ''job''). priority_label follows the LookML rule (>=4 high, >=3 medium, else low). Ported from looker-staffing-predictive insights_and_recommendations. Always filter CLIENT_ID.", "label": "Insights"}'
+tables:
+  - name: INSIGHTS
+    base_table:
+      database: "{{ database }}"
+      schema: "{{ schema }}"
+      table: INSIGHTS_FEED
+    primary_key:
+      columns: [ROW_ID]
+    dimensions:
+      - name: CLIENT_ID
+        synonyms: [client, customer]
+        description: '{"description": "Client id. REQUIRED filter on every query.", "label": "Client ID"}'
+        expr: INSIGHTS.CLIENT_ID
+        data_type: VARCHAR(16777216)
+      - name: INSIGHT_ID
+        synonyms: [insight, id]
+        description: '{"description": "Insight identifier.", "label": "Insight ID"}'
+        expr: INSIGHTS.INSIGHT_ID
+        data_type: VARCHAR(16777216)
+      - name: CATEGORY
+        synonyms: [category, level]
+        description: '{"description": "Insight category (overview / job / recruiter / cost_center). Filter per surface.", "label": "Category"}'
+        expr: INSIGHTS.CATEGORY
+        data_type: VARCHAR(16777216)
+      - name: ENTITY
+        synonyms: [entity]
+        description: '{"description": "Entity the insight is about.", "label": "Entity"}'
+        expr: INSIGHTS.ENTITY
+        data_type: VARCHAR(16777216)
+      - name: DIMENSION
+        synonyms: [dimension]
+        description: '{"description": "Breakdown dimension the insight is scoped to.", "label": "Dimension"}'
+        expr: INSIGHTS.DIMENSION
+        data_type: VARCHAR(16777216)
+      - name: DIMENSION_VALUE
+        synonyms: [dimension value]
+        description: '{"description": "Value of the breakdown dimension.", "label": "Dimension Value"}'
+        expr: INSIGHTS.DIMENSION_VALUE
+        data_type: VARCHAR(16777216)
+      - name: TITLE
+        synonyms: [title]
+        description: '{"description": "Insight title.", "label": "Title"}'
+        expr: INSIGHTS.TITLE
+        data_type: VARCHAR(16777216)
+      - name: DESCRIPTION
+        synonyms: [description]
+        description: '{"description": "Insight description.", "label": "Description"}'
+        expr: INSIGHTS.DESCRIPTION
+        data_type: VARCHAR(16777216)
+      - name: WHAT_HAPPENED
+        synonyms: [what happened]
+        description: '{"description": "What happened summary.", "label": "What Happened"}'
+        expr: INSIGHTS.WHAT_HAPPENED
+        data_type: VARCHAR(16777216)
+      - name: WHY_HAPPENED
+        synonyms: [why happened]
+        description: '{"description": "Why it happened (JSON of why factors).", "label": "Why Happened"}'
+        expr: INSIGHTS.WHY_HAPPENED
+        data_type: VARCHAR(16777216)
+      - name: RECOMMENDATIONS
+        synonyms: [recommendations, actions]
+        description: '{"description": "Recommended actions (JSON).", "label": "Recommendations"}'
+        expr: INSIGHTS.RECOMMENDATIONS
+        data_type: VARCHAR(16777216)
+      - name: PRIORITY
+        synonyms: [priority score]
+        description: '{"description": "Raw priority score.", "label": "Priority"}'
+        expr: INSIGHTS.PRIORITY
+        data_type: VARCHAR(16777216)
+      - name: PRIORITY_LABEL
+        synonyms: [priority, priority level]
+        description: '{"description": "Priority level (high / medium / low) per the >=4 / >=3 rule.", "label": "Priority Level"}'
+        expr: INSIGHTS.PRIORITY_LABEL
+        data_type: VARCHAR(16777216)
+      - name: TAG
+        synonyms: [tag]
+        description: '{"description": "Primary tag.", "label": "Tag"}'
+        expr: INSIGHTS.TAG
+        data_type: VARCHAR(16777216)
+      - name: FOCUS_AREAS
+        synonyms: [focus areas]
+        description: '{"description": "Focus areas (JSON).", "label": "Focus Areas"}'
+        expr: INSIGHTS.FOCUS_AREAS
+        data_type: VARCHAR(16777216)
+      - name: ORDER_IDS
+        synonyms: [order ids, affected orders]
+        description: '{"description": "Affected order ids (JSON array).", "label": "Order IDs"}'
+        expr: INSIGHTS.ORDER_IDS
+        data_type: VARCHAR(16777216)
+      - name: EXPECTED_OUTCOME
+        synonyms: [expected outcome]
+        description: '{"description": "Expected outcome of acting (JSON).", "label": "Expected Outcome"}'
+        expr: INSIGHTS.EXPECTED_OUTCOME
+        data_type: VARCHAR(16777216)
+    facts:
+      - name: AFFECTED_ORDERS
+        synonyms: [total orders]
+        description: '{"description": "Number of orders the insight affects.", "hidden": true, "label": "Affected Orders"}'
+        expr: INSIGHTS.TOTAL_ORDERS
+        data_type: NUMBER(38,0)
+        access_modifier: public_access
+      - name: CANDIDATES_NEEDED
+        synonyms: [additional candidates needed]
+        description: '{"description": "Additional candidates needed (where applicable).", "hidden": true, "label": "Candidates Needed"}'
+        expr: INSIGHTS.ADDITIONAL_CANDIDATES_NEEDED
+        data_type: NUMBER(38,0)
+        access_modifier: public_access
+    metrics:
+      - name: TOTAL_INSIGHTS
+        synonyms: [insight count, total insights]
+        description: '{"description": "Number of insights.", "label": "Total Insights"}'
+        expr: COUNT(DISTINCT INSIGHTS.ROW_ID)
+        access_modifier: public_access

@@ -1,0 +1,42 @@
+name: SV_FUNNEL
+description: '{"description": "Hiring-funnel candidate counts by stage across the client''s latest open orders. Powers the AI-Advisor Pipeline funnel / stage charts: query DIMENSIONS=[STAGE, STAGE_ORDER] with CANDIDATE_COUNT, order by STAGE_ORDER; exclude STAGE = ''Withdrawn'' for the pipeline candidate total. Ported from looker-staffing-predictive hiring_funnel. Always filter CLIENT_ID.", "label": "Funnel"}'
+tables:
+  - name: FUNNEL
+    base_table:
+      database: "{{ database }}"
+      schema: "{{ schema }}"
+      table: FUNNEL_BREAKDOWN
+    primary_key:
+      columns: [FUNNEL_ROW_ID]
+    dimensions:
+      - name: CLIENT_ID
+        synonyms: [client, customer]
+        description: '{"description": "Client id. REQUIRED filter on every query.", "label": "Client ID"}'
+        expr: FUNNEL.CLIENT_ID
+        data_type: VARCHAR(16777216)
+      - name: ORDER_ID
+        synonyms: [order, job]
+        description: '{"description": "Order id (funnel is per order per stage).", "label": "Order ID"}'
+        expr: FUNNEL.ORDER_ID
+        data_type: VARCHAR(16777216)
+      - name: STAGE
+        synonyms: [funnel stage, stage]
+        description: '{"description": "Funnel stage name (Applied / Shortlisted / Interview / Offered / Started / Withdrawn).", "label": "Stage"}'
+        expr: FUNNEL.STAGE
+        data_type: VARCHAR(16777216)
+      - name: STAGE_ORDER
+        synonyms: [stage order, sort by]
+        description: '{"description": "Canonical stage order for sequencing the funnel (Withdrawn = 99).", "label": "Stage Order"}'
+        expr: FUNNEL.STAGE_ORDER
+        data_type: NUMBER(38,0)
+    metrics:
+      - name: CANDIDATES
+        synonyms: [candidates, candidate count]
+        description: '{"description": "Total candidates at the stage across orders.", "label": "Candidates"}'
+        expr: SUM(FUNNEL.CANDIDATE_COUNT)
+        access_modifier: public_access
+      - name: ORDERS_AT_STAGE
+        synonyms: [orders]
+        description: '{"description": "Distinct orders present at the stage.", "label": "Orders"}'
+        expr: COUNT(DISTINCT FUNNEL.ORDER_ID)
+        access_modifier: public_access
